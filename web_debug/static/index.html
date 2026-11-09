@@ -1,0 +1,814 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>RMV Debug Dashboard</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg: #101316;
+            --surface: #181d21;
+            --surface-raised: #20262b;
+            --line: #30383e;
+            --text: #eef2f3;
+            --muted: #9ba7ad;
+            --accent: #45c4b0;
+            --accent-soft: #153c37;
+            --warning: #e3ad4a;
+            --danger: #e16b65;
+            --grid: #293136;
+        }
+
+        * { box-sizing: border-box; }
+
+        html, body { min-height: 100%; }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+                "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            font-size: 14px;
+            letter-spacing: 0;
+        }
+
+        button, select { font: inherit; }
+
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            min-height: 64px;
+            padding: 10px 20px;
+            border-bottom: 1px solid var(--line);
+            background: rgba(16, 19, 22, 0.96);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: max-content;
+        }
+
+        .brand-mark {
+            display: grid;
+            width: 38px;
+            height: 38px;
+            place-items: center;
+            border: 1px solid #367c72;
+            border-radius: 6px;
+            background: var(--accent-soft);
+            color: var(--accent);
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 16px;
+            line-height: 1.25;
+            letter-spacing: 0;
+        }
+
+        .subtitle {
+            margin-top: 2px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .connection {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            min-width: max-content;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--warning);
+        }
+
+        .connection.online .status-dot { background: var(--accent); }
+        .connection.offline .status-dot { background: var(--danger); }
+
+        .toolbar {
+            display: flex;
+            flex: 1;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+
+        .field {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .btn, select {
+            min-height: 34px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: var(--surface-raised);
+            color: var(--text);
+        }
+
+        .btn {
+            padding: 0 12px;
+            cursor: pointer;
+        }
+
+        .btn:hover, select:hover { border-color: #526068; }
+        .btn:focus-visible, select:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
+
+        .btn.active {
+            border-color: #367c72;
+            background: var(--accent-soft);
+            color: var(--accent);
+        }
+
+        select { padding: 0 28px 0 10px; }
+
+        main { padding: 18px 20px 30px; }
+
+        #charts {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+            gap: 12px;
+            align-items: start;
+        }
+
+        .chart-card {
+            min-width: 0;
+            overflow: hidden;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: var(--surface);
+        }
+
+        .chart-header {
+            display: flex;
+            min-height: 46px;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 8px 10px 8px 12px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .metric-info {
+            display: flex;
+            min-width: 0;
+            align-items: baseline;
+            gap: 10px;
+        }
+
+        .metric-name {
+            overflow: hidden;
+            color: var(--muted);
+            font-size: 12px;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .metric-value {
+            min-width: 72px;
+            color: var(--text);
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+            font-size: 15px;
+            font-variant-numeric: tabular-nums;
+            font-weight: 700;
+        }
+
+        .card-actions { display: flex; gap: 4px; }
+
+        .icon-btn {
+            width: 34px;
+            height: 30px;
+            padding: 0;
+            border: 0;
+            border-radius: 4px;
+            background: transparent;
+            color: var(--muted);
+            cursor: pointer;
+        }
+
+        .icon-btn:hover { background: var(--surface-raised); color: var(--text); }
+        .icon-btn:focus-visible { outline: 2px solid var(--accent); }
+
+        .chart-wrap {
+            width: 100%;
+            height: 250px;
+            padding: 8px;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        .chart-card.collapsed .chart-wrap { display: none; }
+        .chart-card.collapsed .chart-header { border-bottom: 0; }
+
+        .empty-state {
+            grid-column: 1 / -1;
+            display: grid;
+            min-height: 260px;
+            place-items: center;
+            border: 1px dashed #3a444a;
+            border-radius: 6px;
+            color: var(--muted);
+            text-align: center;
+        }
+
+        .empty-title { color: var(--text); font-size: 15px; font-weight: 650; }
+        .empty-detail { margin-top: 6px; font-size: 12px; }
+
+        @media (max-width: 850px) {
+            .topbar { align-items: flex-start; flex-wrap: wrap; }
+            .connection { margin-left: auto; }
+            .toolbar { flex-basis: 100%; justify-content: flex-start; }
+        }
+
+        @media (max-width: 520px) {
+            .topbar, main { padding-left: 12px; padding-right: 12px; }
+            .toolbar { gap: 6px; }
+            .field { width: 100%; justify-content: space-between; }
+            .btn { flex: 1; padding: 0 8px; }
+            .chart-wrap { height: 220px; }
+        }
+    </style>
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand">
+            <div class="brand-mark" aria-hidden="true">RMV</div>
+            <div>
+                <h1>视觉调试面板</h1>
+                <div class="subtitle">Real-time numeric telemetry</div>
+            </div>
+        </div>
+
+        <div id="connection" class="connection connecting" role="status" aria-live="polite">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="connectionText">正在连接</span>
+        </div>
+
+        <div class="toolbar">
+            <label class="field" for="timeWindow">
+                时间窗
+                <select id="timeWindow">
+                    <option value="3" selected>3 秒</option>
+                    <option value="15">15 秒</option>
+                    <option value="30">30 秒</option>
+                    <option value="60">1 分钟</option>
+                    <option value="300">5 分钟</option>
+                    <option value="0">全部</option>
+                </select>
+            </label>
+            <label class="field" for="sampleInterval">
+                采样间隔
+                <select id="sampleInterval">
+                    <option value="1" selected>每帧</option>
+                    <option value="2">每 2 帧</option>
+                    <option value="5">每 5 帧</option>
+                    <option value="10">每 10 帧</option>
+                    <option value="20">每 20 帧</option>
+                </select>
+            </label>
+            <label class="field" for="yAxisTarget">
+                Y轴量程
+                <select id="yAxisTarget">
+                    <option value="" selected>自动（全部）</option>
+                </select>
+                <span id="yRangeInputs" style="display:none">
+                    <input id="yMin" type="number" step="any" placeholder="min" style="width:64px">
+                    <input id="yMax" type="number" step="any" placeholder="max" style="width:64px">
+                    <button id="yAxisReset" class="btn" type="button" style="min-height:28px;padding:0 10px">恢复自动</button>
+                </span>
+            </label>
+            <button id="pauseButton" class="btn" type="button" aria-pressed="false">暂停</button>
+            <button id="clearButton" class="btn" type="button">清空</button>
+            <button id="exportButton" class="btn" type="button">导出 CSV</button>
+        </div>
+    </header>
+
+    <main>
+        <section id="charts" aria-live="polite"></section>
+    </main>
+
+    <script>
+        (() => {
+            "use strict";
+
+            const MAX_HISTORY_POINTS = 5000;
+            const chartsRoot = document.getElementById("charts");
+            const connection = document.getElementById("connection");
+            const connectionText = document.getElementById("connectionText");
+            const pauseButton = document.getElementById("pauseButton");
+            const clearButton = document.getElementById("clearButton");
+            const exportButton = document.getElementById("exportButton");
+            const timeWindow = document.getElementById("timeWindow");
+            const sampleInterval = document.getElementById("sampleInterval");
+            const yAxisTarget = document.getElementById("yAxisTarget");
+            const yMin = document.getElementById("yMin");
+            const yMax = document.getElementById("yMax");
+            const yAxisReset = document.getElementById("yAxisReset");
+            const yRangeInputs = document.getElementById("yRangeInputs");
+
+            // 每个指标名称对应一张图表，并在浏览器内维护自己的历史记录。
+            const charts = new Map();
+            // 指标展示顺序：按调参流程排 —— ①静止调R(pnp) ②平移调q_pos(vc) ③自转调q_yaw(w)
+            //                   ④stable_stage 判定 → 其余（未列出的指标自动缩放）。
+            const METRIC_RANGES = [
+                // ① 静止调 R（观测噪声）：看 PnP 观测抖动
+                { key: "pnp_x_m", min: 1.4, max: 1.9 },
+                { key: "pnp_y_m", min: -0.2, max: 0.2 },
+                { key: "pnp_z_m", min: -0.4, max: -0.25 },
+                { key: "pnp_yaw_rad", min: -3.2, max: 3.2 },
+                // ② 匀速直线平移调 q_pos：看中心速度 vcx/vcy
+                { key: "ekf_vx_m_s", min: -0.7, max: 0.7 },
+                { key: "ekf_vy_m_s", min: -0.3, max: 0.3 },
+                // ③ 原地自转调 q_yaw：看角速度 w（辅助看 yaw）
+                { key: "ekf_yaw_rate_rad_s", min: -15.0, max: 15.0 },
+                { key: "ekf_yaw_rad", min: -3.2, max: 3.2 },
+                // ④ stable_stage 判定（稳定时=计数，不稳定/丢失=0）
+                { key: "stable_stage", min: 0, max: 4 },
+                // 其余
+                { key: "camera_fps", min: 0, max: 120 },
+                { key: "armor_count", min: 0, max: 3 },
+                { key: "ekf_state", min: 0, max: 2 },
+                { key: "ekf_x_m", min: 1.6, max: 2.4 },
+                { key: "ekf_y_m", min: -0.15, max: 0.15 },
+                { key: "ekf_z0_m", min: -0.4, max: -0.2 },
+                { key: "ekf_z1_m", min: -0.4, max: -0.2 },
+                { key: "ekf_z2_m", min: -0.4, max: -0.2 },
+                { key: "ekf_z3_m", min: -0.4, max: -0.2 },
+                { key: "ekf_radius_1_m", min: 0.15, max: 0.30 },
+                { key: "ekf_radius_2_m", min: 0.15, max: 0.30 },
+                { key: "target_yaw", min: -3.2, max: 3.2 },
+                { key: "target_pitch", min: -0.3, max: 0.3 },
+                { key: "target_distance", min: 1.0, max: 2.5 },
+                { key: "pnp_distance_m", min: 1.0, max: 2.5 },
+                { key: "pnp_reprojection_error", min: 0, max: 10 },
+            ];
+            function metricOrder(key) {
+                const i = METRIC_RANGES.findIndex((m) => m.key === key);
+                return i === -1 ? METRIC_RANGES.length : i;
+            }
+            function metricRange(key) {
+                const m = METRIC_RANGES.find((x) => x.key === key);
+                return m ? { min: m.min, max: m.max } : null;
+            }
+            function reorderCharts() {
+                const cards = [...chartsRoot.querySelectorAll(".chart-card")];
+                cards.sort((a, b) =>
+                    metricOrder(a.dataset.metric) - metricOrder(b.dataset.metric));
+                for (const c of cards) chartsRoot.appendChild(c);
+            }
+            let paused = false;
+            let streamState = "connecting";
+            let eventSource = null;
+
+            function setConnectionState(state, label) {
+                streamState = state;
+                connection.className = `connection ${state}`;
+                connectionText.textContent = label;
+                updateEmptyState();
+            }
+
+            function updateEmptyState() {
+                const existing = document.getElementById("emptyState");
+                if (charts.size > 0) {
+                    if (existing) existing.remove();
+                    return;
+                }
+
+                const empty = existing || document.createElement("div");
+                empty.id = "emptyState";
+                empty.className = "empty-state";
+                const detail = streamState === "online"
+                    ? "等待处理线程发送数值"
+                    : streamState === "offline"
+                        ? "数据连接已断开"
+                        : "正在建立数据连接";
+                empty.innerHTML = "";
+                const content = document.createElement("div");
+                const title = document.createElement("div");
+                title.className = "empty-title";
+                title.textContent = "暂无调试数据";
+                const message = document.createElement("div");
+                message.className = "empty-detail";
+                message.textContent = detail;
+                content.append(title, message);
+                empty.appendChild(content);
+                if (!existing) chartsRoot.appendChild(empty);
+            }
+
+            function formatValue(value) {
+                const absolute = Math.abs(value);
+                if (absolute !== 0 && (absolute >= 100000 || absolute < 0.001)) {
+                    return value.toExponential(3);
+                }
+                return value.toFixed(3).replace(/\.0+$|(\.\d*?)0+$/, "$1");
+            }
+
+            function inputValue(value) {
+                return String(Number(value.toPrecision(4)));
+            }
+
+            function makeChart(key) {
+                const card = document.createElement("article");
+                card.className = "chart-card";
+
+                const header = document.createElement("header");
+                header.className = "chart-header";
+                const info = document.createElement("div");
+                info.className = "metric-info";
+                const name = document.createElement("span");
+                name.className = "metric-name";
+                name.title = key;
+                name.textContent = key;
+                const value = document.createElement("span");
+                value.className = "metric-value";
+                value.textContent = "-";
+                info.append(name, value);
+
+                const actions = document.createElement("div");
+                actions.className = "card-actions";
+                const csvButton = document.createElement("button");
+                csvButton.type = "button";
+                csvButton.className = "icon-btn";
+                csvButton.title = `导出 ${key} CSV`;
+                csvButton.setAttribute("aria-label", csvButton.title);
+                csvButton.textContent = "CSV";
+                const collapseButton = document.createElement("button");
+                collapseButton.type = "button";
+                collapseButton.className = "icon-btn";
+                collapseButton.title = "折叠图表";
+                collapseButton.setAttribute("aria-label", collapseButton.title);
+                collapseButton.setAttribute("aria-expanded", "true");
+                collapseButton.textContent = "v";
+                actions.append(csvButton, collapseButton);
+                header.append(info, actions);
+
+                const wrap = document.createElement("div");
+                wrap.className = "chart-wrap";
+                const canvas = document.createElement("canvas");
+                canvas.setAttribute("role", "img");
+                canvas.setAttribute("aria-label", `${key} 曲线`);
+                wrap.appendChild(canvas);
+                card.append(header, wrap);
+                chartsRoot.appendChild(card);
+                card.dataset.metric = key;
+                reorderCharts();
+
+                const chart = { key, card, canvas, value, history: [], dirty: true, yrange: null };
+                charts.set(key, chart);
+                // 注册到「Y轴量程」下拉，供按指标手动设量程。
+                const yOption = document.createElement("option");
+                yOption.value = key;
+                yOption.textContent = key;
+                yAxisTarget.appendChild(yOption);
+                updateEmptyState();
+
+                csvButton.addEventListener("click", () => exportMetric(chart));
+                collapseButton.addEventListener("click", () => {
+                    const collapsed = card.classList.toggle("collapsed");
+                    collapseButton.textContent = collapsed ? ">" : "v";
+                    collapseButton.title = collapsed ? "展开图表" : "折叠图表";
+                    collapseButton.setAttribute("aria-label", collapseButton.title);
+                    collapseButton.setAttribute("aria-expanded", String(!collapsed));
+                    if (!collapsed) {
+                        chart.dirty = true;
+                        renderChart(chart);
+                    }
+                });
+                return chart;
+            }
+
+            function appendPoint(point) {
+                if (!point || typeof point.k !== "string" || point.k.length === 0) return;
+                const numericValue = Number(point.v);
+                const timestamp = Number(point.t);
+                if (!Number.isFinite(numericValue) || !Number.isFinite(timestamp)) return;
+
+                const chart = charts.get(point.k) || makeChart(point.k);
+                // 限制浏览器历史记录的长度，避免暂停或长时间运行时无限增长。
+                chart.history.push({ t: timestamp, v: numericValue });
+                if (chart.history.length > MAX_HISTORY_POINTS) {
+                    chart.history.splice(0, chart.history.length - MAX_HISTORY_POINTS);
+                }
+                chart.dirty = true;
+            }
+
+            function visiblePoints(history) {
+                if (history.length === 0) return history;
+                const seconds = Number(timeWindow.value);
+                if (seconds === 0) return history;
+                // 时间窗口以最新样本为基准，这样回放历史数据时也能正常工作。
+                const cutoff = history[history.length - 1].t - seconds * 1000;
+                let first = history.length - 1;
+                while (first > 0 && history[first - 1].t >= cutoff) first -= 1;
+                return history.slice(first);
+            }
+
+            function renderChart(chart) {
+                if (!chart.dirty || chart.card.classList.contains("collapsed")) return;
+                chart.dirty = false;
+
+                const points = visiblePoints(chart.history);
+                if (chart.history.length > 0) {
+                    chart.value.textContent = formatValue(chart.history[chart.history.length - 1].v);
+                }
+
+                const rect = chart.canvas.getBoundingClientRect();
+                if (rect.width < 10 || rect.height < 10) return;
+                const ratio = Math.min(window.devicePixelRatio || 1, 2);
+                chart.canvas.width = Math.round(rect.width * ratio);
+                chart.canvas.height = Math.round(rect.height * ratio);
+                const ctx = chart.canvas.getContext("2d");
+                ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+                ctx.clearRect(0, 0, rect.width, rect.height);
+
+                const plot = { left: 58, top: 12, right: rect.width - 12, bottom: rect.height - 28 };
+                const plotWidth = Math.max(1, plot.right - plot.left);
+                const plotHeight = Math.max(1, plot.bottom - plot.top);
+
+                if (points.length === 0) {
+                    ctx.fillStyle = "#9ba7ad";
+                    ctx.font = "12px system-ui, sans-serif";
+                    ctx.textAlign = "center";
+                    ctx.fillText("暂无数据", rect.width / 2, rect.height / 2);
+                    return;
+                }
+
+                let min, max;
+                if (chart.yrange && chart.yrange.min < chart.yrange.max) {
+                    min = chart.yrange.min;
+                    max = chart.yrange.max;
+                } else {
+                    const dr = metricRange(chart.key);
+                    if (dr) {
+                        min = dr.min;
+                        max = dr.max;
+                    } else {
+                        min = points[0].v;
+                        max = points[0].v;
+                        for (const point of points) {
+                            min = Math.min(min, point.v);
+                            max = Math.max(max, point.v);
+                        }
+                        const spread = max - min;
+                        const padding = spread === 0 ? Math.max(Math.abs(max) * 0.08, 0.5) : spread * 0.1;
+                        min -= padding;
+                        max += padding;
+                    }
+                }
+
+                ctx.strokeStyle = "#293136";
+                ctx.fillStyle = "#9ba7ad";
+                ctx.lineWidth = 1;
+                ctx.font = "11px system-ui, sans-serif";
+                ctx.textBaseline = "middle";
+                for (let line = 0; line <= 4; line += 1) {
+                    const y = plot.top + (plotHeight * line) / 4;
+                    ctx.beginPath();
+                    ctx.moveTo(plot.left, Math.round(y) + 0.5);
+                    ctx.lineTo(plot.right, Math.round(y) + 0.5);
+                    ctx.stroke();
+                    ctx.textAlign = "right";
+                    ctx.fillText(formatValue(max - ((max - min) * line) / 4), plot.left - 7, y);
+                }
+
+                const firstTime = points[0].t;
+                const lastTime = points[points.length - 1].t;
+                const timeSpan = Math.max(1, lastTime - firstTime);
+                ctx.textBaseline = "alphabetic";
+                ctx.textAlign = "left";
+                ctx.fillText(new Date(firstTime).toLocaleTimeString(), plot.left, rect.height - 7);
+                ctx.textAlign = "right";
+                ctx.fillText(new Date(lastTime).toLocaleTimeString(), plot.right, rect.height - 7);
+
+                // 仅对绘图数据降采样；导出的 CSV 仍保留完整的浏览器历史记录。
+                const maxRenderedPoints = Math.max(100, Math.floor(plotWidth * 2));
+                const autoStep = Math.max(1, Math.ceil(points.length / maxRenderedPoints));
+                const step = Math.max(autoStep, Number(sampleInterval.value));
+                ctx.beginPath();
+                ctx.strokeStyle = "#45c4b0";
+                ctx.lineWidth = 1.7;
+                let started = false;
+                for (let index = 0; index < points.length; index += step) {
+                    const point = points[index];
+                    const x = plot.left + ((point.t - firstTime) / timeSpan) * plotWidth;
+                    const y = plot.bottom - ((point.v - min) / (max - min)) * plotHeight;
+                    if (!started) {
+                        ctx.moveTo(x, y);
+                        started = true;
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                }
+                const last = points[points.length - 1];
+                const lastX = plot.left + ((last.t - firstTime) / timeSpan) * plotWidth;
+                const lastY = plot.bottom - ((last.v - min) / (max - min)) * plotHeight;
+                ctx.lineTo(lastX, lastY);
+                ctx.stroke();
+            }
+
+            function renderAll(force = false) {
+                if (paused && !force) return;
+                for (const chart of charts.values()) renderChart(chart);
+            }
+
+            function csvCell(value) {
+                const text = String(value);
+                return `"${text.replace(/"/g, '""')}"`;
+            }
+
+            function triggerDownload(filename, rows) {
+                const blob = new Blob(["\ufeff", rows.join("\n")], {
+                    type: "text/csv;charset=utf-8"
+                });
+                const url = URL.createObjectURL(blob);
+                const anchor = document.createElement("a");
+                anchor.href = url;
+                anchor.download = filename;
+                document.body.appendChild(anchor);
+                anchor.click();
+                anchor.remove();
+                URL.revokeObjectURL(url);
+            }
+
+            function safeFilename(name) {
+                const safe = name.replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "");
+                return safe || "metric";
+            }
+
+            function exportMetric(chart) {
+                const rows = ["timestamp,time,value"];
+                for (const point of chart.history) {
+                    rows.push(`${point.t},${csvCell(new Date(point.t).toISOString())},${point.v}`);
+                }
+                triggerDownload(`${safeFilename(chart.key)}.csv`, rows);
+            }
+
+            function exportAll() {
+                const rows = ["metric,timestamp,time,value"];
+                for (const chart of charts.values()) {
+                    for (const point of chart.history) {
+                        rows.push(`${csvCell(chart.key)},${point.t},${csvCell(new Date(point.t).toISOString())},${point.v}`);
+                    }
+                }
+                const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+                triggerDownload(`rmv-debug-${stamp}.csv`, rows);
+            }
+
+            pauseButton.addEventListener("click", () => {
+                paused = !paused;
+                pauseButton.classList.toggle("active", paused);
+                pauseButton.setAttribute("aria-pressed", String(paused));
+                pauseButton.textContent = paused ? "继续" : "暂停";
+                if (!paused) renderAll(true);
+            });
+
+            clearButton.addEventListener("click", () => {
+                charts.clear();
+                chartsRoot.replaceChildren();
+                // 重置 Y 轴量程下拉，只保留「自动（全部）」。
+                while (yAxisTarget.options.length > 1) yAxisTarget.remove(1);
+                yAxisTarget.value = "";
+                yRangeInputs.style.display = "none";
+                updateEmptyState();
+            });
+
+            exportButton.addEventListener("click", exportAll);
+            timeWindow.addEventListener("change", () => {
+                for (const chart of charts.values()) chart.dirty = true;
+                renderAll(true);
+            });
+            sampleInterval.addEventListener("change", () => {
+                for (const chart of charts.values()) chart.dirty = true;
+                renderAll(true);
+            });
+            function selectedChart() {
+                return yAxisTarget.value ? charts.get(yAxisTarget.value) : null;
+            }
+
+            function fillRangeInputs(chart) {
+                if (chart.yrange) {
+                    yMin.value = inputValue(chart.yrange.min);
+                    yMax.value = inputValue(chart.yrange.max);
+                    return;
+                }
+                const dr = metricRange(chart.key);
+                if (dr) {
+                    yMin.value = inputValue(dr.min);
+                    yMax.value = inputValue(dr.max);
+                    return;
+                }
+                const pts = visiblePoints(chart.history);
+                if (pts.length === 0) {
+                    yMin.value = "";
+                    yMax.value = "";
+                    return;
+                }
+                let lo = pts[0].v, hi = pts[0].v;
+                for (const p of pts) {
+                    lo = Math.min(lo, p.v);
+                    hi = Math.max(hi, p.v);
+                }
+                yMin.value = inputValue(lo);
+                yMax.value = inputValue(hi);
+            }
+
+            yAxisTarget.addEventListener("change", () => {
+                if (yAxisTarget.value === "") {
+                    // 「自动（全部）」：清掉所有手动量程，回到自动。
+                    for (const chart of charts.values()) chart.yrange = null;
+                    yRangeInputs.style.display = "none";
+                } else {
+                    const chart = charts.get(yAxisTarget.value);
+                    yRangeInputs.style.display = chart ? "" : "none";
+                    if (chart) fillRangeInputs(chart);
+                }
+                for (const chart of charts.values()) chart.dirty = true;
+                renderAll(true);
+            });
+
+            function applyRangeToSelected() {
+                const chart = selectedChart();
+                if (!chart) return;
+                const lo = Number(yMin.value), hi = Number(yMax.value);
+                if (Number.isFinite(lo) && Number.isFinite(hi) && lo < hi) {
+                    chart.yrange = { min: lo, max: hi };
+                    chart.dirty = true;
+                    renderAll(true);
+                }
+            }
+            yMin.addEventListener("input", applyRangeToSelected);
+            yMax.addEventListener("input", applyRangeToSelected);
+
+            yAxisReset.addEventListener("click", () => {
+                const chart = selectedChart();
+                if (chart) {
+                    chart.yrange = null;
+                    chart.dirty = true;
+                    fillRangeInputs(chart);
+                    renderAll(true);
+                }
+            });
+
+            window.addEventListener("resize", () => {
+                for (const chart of charts.values()) chart.dirty = true;
+                renderAll(true);
+            });
+
+            function connect() {
+                setConnectionState("connecting", "正在连接");
+                // EventSource 重连时会把 Last-Event-ID 发送给服务器。
+                eventSource = new EventSource("/data");
+                eventSource.onopen = () => setConnectionState("online", "数据在线");
+                eventSource.onmessage = (event) => {
+                    try {
+                        const payload = JSON.parse(event.data);
+                        if (Array.isArray(payload)) payload.forEach(appendPoint);
+                    } catch (error) {
+                        console.warn("Invalid SSE payload", error);
+                    }
+                };
+                eventSource.onerror = () => {
+                    const closed = eventSource.readyState === EventSource.CLOSED;
+                    setConnectionState(closed ? "offline" : "connecting",
+                        closed ? "连接已断开" : "正在重连");
+                };
+            }
+
+            window.addEventListener("beforeunload", () => {
+                if (eventSource) eventSource.close();
+            });
+
+            updateEmptyState();
+            connect();
+            window.setInterval(() => renderAll(false), 100);
+        })();
+    </script>
+</body>
+</html>

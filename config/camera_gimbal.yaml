@@ -1,0 +1,47 @@
+%YAML:1.0
+---
+# 云台上相机（机上相机）配置
+#   - 内参/畸变:学长提供的 CameraConfig.yaml（fx=1782.6, k3=1.19）
+#   - 外参旋转:沿用「正向朝前」假设（光轴朝前、画面正立）
+#   - 外参平移:沿用 云台外参.md 的 67.11,0,51.50 mm（云台→相机），云台相机若不同需重测
+calibrated: 1
+
+# 标定图像分辨率(pixel)
+image_width: 1440
+image_height: 1080
+
+# 相机内参矩阵 K
+camera_matrix: !!opencv-matrix
+  rows: 3
+  cols: 3
+  dt: d
+  data: [ 1782.6, 0., 749.4,
+          0., 1784.3, 574.7,
+          0., 0., 1. ]
+
+# 畸变系数 [k1, k2, p1, p2, k3]
+distortion_coefficients: !!opencv-matrix
+  rows: 1
+  cols: 5
+  dt: d
+  data: [ -0.0357, -0.1533, 0., 0., 1.1905 ]
+
+# 相机→云台 旋转矩阵 R_gimbal_camera
+# 正向朝前安装(光轴朝前、画面正立)：把 OpenCV 相机坐标(右/下/前)转成云台坐标(前/左/上)。
+rotation_camera_to_gimbal: !!opencv-matrix
+  rows: 3
+  cols: 3
+  dt: d
+  data: [ 0., 0., 1.,
+          -1., 0., 0.,
+          0., -1., 0. ]
+
+# 相机原点在云台坐标系中的位置 t_gimbal_camera(单位 m)
+translation_camera_to_gimbal: !!opencv-matrix
+  rows: 3
+  cols: 1
+  dt: d
+  data: [ -0.06711, 0., -0.0515 ]
+
+# 标定重投影误差(px)
+mean_reprojection_error_px: 0.0

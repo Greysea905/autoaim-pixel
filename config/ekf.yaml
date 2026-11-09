@@ -1,0 +1,39 @@
+%YAML:1.0
+---
+# EKF 调参参数：改完重跑工具即生效，无需重新编译。
+# 对应 tracker/include/EKFEstimator.hpp 的 EKFConfig；省略的键用代码默认值。
+
+# ---- 过程噪声 Q ----
+q_pos: 3000.0        # 平移过程噪声（位置/速度）
+q_yaw: 2400.0         # yaw/角速度过程噪声（w 收敛速度主要靠它）
+q_z: 0.03            # 高度过程噪声
+q_r: 1.0e-08         # 半径过程噪声（物理常数，几乎冻结）
+
+# ---- 观测噪声 R ----
+sigma_cam_yaw: 0.10          # 相机方位角 θ_cam (rad)
+sigma_cam_pitch: 0.10        # 相机俯仰角 φ_cam (rad)
+sigma_cam_distance: 0.50     # 距离噪声 base (m)
+sigma_dist_slope: 1.0        # 距离噪声斜率（每米）
+sigma_world_normal_yaw: 0.4  # 法向噪声 base (rad)
+sigma_norm_slope: 1.5        # 法向噪声斜率（每米 rad）
+sigma_scale_dref: 1.0        # 缩放起始距离 (m)
+
+# ---- 关联 / 状态机 ----
+mahalanobis_gate2: 9.49
+converge_frames: 3
+reset_lost_s: 0.20
+
+# ---- 初始化 ----
+r0_init: 0.30
+r1_init: 0.30
+
+# ---- 发散检测物理界 ----
+radius_min: 0.10
+radius_max: 0.50
+w_max: 200.0
+
+# ---- 一致性检验（NIS） ----
+nis_threshold: 9.49
+nis_fail_frames: 3
+nis_stable_threshold: 4.0
+q_stable_scale: 0.10
