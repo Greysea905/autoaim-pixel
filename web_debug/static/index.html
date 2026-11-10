@@ -335,39 +335,34 @@
 
             // 每个指标名称对应一张图表，并在浏览器内维护自己的历史记录。
             const charts = new Map();
-            // 指标展示顺序：按调参流程排 —— ①静止调R(pnp) ②平移调q_pos(vc) ③自转调q_yaw(w)
-            //                   ④stable_stage 判定 → 其余（未列出的指标自动缩放）。
+            // 指标展示顺序：按实际管线步骤排 —— ①相机取流 ②装甲板检测 ③灯条角点观测
+            //                   ④EKF ⑤发给电控（未列出的指标自动缩放）。
             const METRIC_RANGES = [
-                // ① 静止调 R（观测噪声）：看 PnP 观测抖动
-                { key: "pnp_x_m", min: 1.4, max: 1.9 },
-                { key: "pnp_y_m", min: -0.2, max: 0.2 },
-                { key: "pnp_z_m", min: -0.4, max: -0.25 },
-                { key: "pnp_yaw_rad", min: -3.2, max: 3.2 },
-                // ② 匀速直线平移调 q_pos：看中心速度 vcx/vcy
-                { key: "ekf_vx_m_s", min: -0.7, max: 0.7 },
-                { key: "ekf_vy_m_s", min: -0.3, max: 0.3 },
-                // ③ 原地自转调 q_yaw：看角速度 w（辅助看 yaw）
-                { key: "ekf_yaw_rate_rad_s", min: -15.0, max: 15.0 },
-                { key: "ekf_yaw_rad", min: -3.2, max: 3.2 },
-                // ④ stable_stage 判定（稳定时=计数，不稳定/丢失=0）
-                { key: "stable_stage", min: 0, max: 4 },
-                // 其余
+                // ① 相机取流
                 { key: "camera_fps", min: 0, max: 120 },
+                // ② 装甲板检测
                 { key: "armor_count", min: 0, max: 3 },
+                // ③ 灯条角点观测（观测向量只保留 yaw）
+                { key: "obs_yaw", min: -3.2, max: 3.2 },
+                // ④ EKF（状态向量按顺序）
                 { key: "ekf_state", min: 0, max: 2 },
+                { key: "stable_stage", min: 0, max: 4 },
                 { key: "ekf_x_m", min: 1.6, max: 2.4 },
+                { key: "ekf_vx_m_s", min: -0.7, max: 0.7 },
                 { key: "ekf_y_m", min: -0.15, max: 0.15 },
+                { key: "ekf_vy_m_s", min: -0.3, max: 0.3 },
                 { key: "ekf_z0_m", min: -0.4, max: -0.2 },
-                { key: "ekf_z1_m", min: -0.4, max: -0.2 },
-                { key: "ekf_z2_m", min: -0.4, max: -0.2 },
-                { key: "ekf_z3_m", min: -0.4, max: -0.2 },
+                { key: "ekf_z1_m", min: -0.3, max: 0.3 },
                 { key: "ekf_radius_1_m", min: 0.15, max: 0.30 },
                 { key: "ekf_radius_2_m", min: 0.15, max: 0.30 },
+                { key: "ekf_yaw_rad", min: -3.2, max: 3.2 },
+                { key: "ekf_yaw_rate_rad_s", min: -15.0, max: 15.0 },
+                { key: "ekf_mag", min: -0.1, max: 0.6 },
+                { key: "ekf_azi", min: -3.2, max: 3.2 },
+                // ⑤ 发给电控
                 { key: "target_yaw", min: -3.2, max: 3.2 },
                 { key: "target_pitch", min: -0.3, max: 0.3 },
                 { key: "target_distance", min: 1.0, max: 2.5 },
-                { key: "pnp_distance_m", min: 1.0, max: 2.5 },
-                { key: "pnp_reprojection_error", min: 0, max: 10 },
             ];
             function metricOrder(key) {
                 const i = METRIC_RANGES.findIndex((m) => m.key === key);

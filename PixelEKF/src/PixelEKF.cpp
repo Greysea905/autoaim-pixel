@@ -108,18 +108,36 @@ std::array<Eigen::Vector3d, 4> PixelEKF::plateCornersWorld(const Eigen::VectorXd
     const int r_idx = (slot % 2 == 0) ? R0 : R1;
     const double r = x(r_idx);
     const double hz = (slot % 2 == 0) ? x(Z0) : x(Z1);
+    const double mag = x(MAG), azi = x(AZI);
 
-    const Eigen::Vector3d center(x(CX) + r * std::cos(a),
-                                 x(CY) + r * std::sin(a),
-                                 hz);
-    const Eigen::Vector3d t(-std::sin(a), std::cos(a), 0.0);
-    const Eigen::Vector3d up(0.0, 0.0, 1.0);
     const double hw = cfg_.plate_half_width;
     const double hh = cfg_.plate_half_height;
-    return {center - hw * t + hh * up,
-            center + hw * t + hh * up,
-            center + hw * t - hh * up,
-            center - hw * t - hh * up};
+
+    // 1. 板中心相对底盘中心的位置（直立底盘系），底盘中心高度取 (z0+z1)/2 作倾斜旋转支点。
+    const double center_z = 0.5 * (x(Z0) + x(Z1));
+    const Eigen::Vector3d p_local(r * std::cos(a), r * std::sin(a), hz - center_z);
+
+    // 2. 15° 板安装角：绕切向 t_local 后仰（法向上仰 15°），相对底盘竖直轴。
+    const double tilt = cfg_.plate_tilt_deg * kPi / 180.0;
+    const double ct = std::cos(tilt), st = std::sin(tilt);
+    const Eigen::Vector3d t_local(-std::sin(a), std::cos(a), 0.0);          // 切向（不变）
+    const Eigen::Vector3d up_15(-std::cos(a) * st, -std::sin(a) * st, ct);  // 竖直边后仰
+
+    // 3. 底盘倾斜 R_tilt：绕水平轴 u 转 mag，把底盘竖直(0,0,1)转到 n=(sinφcosψ,sinφsinψ,cosφ)。
+    const Eigen::Vector3d u(-std::sin(azi), std::cos(azi), 0.0);
+    const double cm = std::cos(mag), sm = std::sin(mag);
+    auto rotTilt = [&](const Eigen::Vector3d& v) {
+        return v * cm + u.cross(v) * sm + u * (u.dot(v)) * (1.0 - cm);
+    };
+
+    const Eigen::Vector3d center_world = Eigen::Vector3d(x(CX), x(CY), center_z) + rotTilt(p_local);
+    const Eigen::Vector3d t_world = rotTilt(t_local);
+    const Eigen::Vector3d up_world = rotTilt(up_15);
+
+    return {center_world - hw * t_world + hh * up_world,  // 左上
+            center_world + hw * t_world + hh * up_world,  // 右上
+            center_world + hw * t_world - hh * up_world,  // 右下
+            center_world - hw * t_world - hh * up_world}; // 左下
 }
 
 Eigen::VectorXd PixelEKF::h(const Eigen::VectorXd& x, int slot) const {
@@ -192,6 +210,8 @@ void PixelEKF::predict(double dt) {
     P_(Z1, Z0) += cfg_.q_z * dt;
     P_(R0, R0) += cfg_.q_r * dt;
     P_(R1, R1) += cfg_.q_r * dt;
+    P_(MAG, MAG) += cfg_.q_mag * dt;
+    P_(AZI, AZI) += cfg_.q_azi * dt;
 }
 
 double PixelEKF::mahalanobis2(const Eigen::VectorXd& z, int slot) const {
@@ -213,13 +233,15 @@ void PixelEKF::correct(const Eigen::VectorXd& obs, int slot) {
     P_ = (I - K * H) * P_;
     P_ = 0.5 * (P_ + P_.transpose());  // 保持对称半正定
     x_(YAW) = wrapPi(x_(YAW));
+    x_(AZI) = wrapPi(x_(AZI));
 }
 
 bool PixelEKF::diverged() const {
     const bool r_ok = x_(R0) > cfg_.radius_min && x_(R0) < cfg_.radius_max &&
                       x_(R1) > cfg_.radius_min && x_(R1) < cfg_.radius_max;
     const bool w_ok = std::fabs(x_(W)) < cfg_.w_max;
-    return !(r_ok && w_ok);
+    const bool mag_ok = std::fabs(x_(MAG)) < cfg_.mag_max;
+    return !(r_ok && w_ok && mag_ok);
 }
 
 void PixelEKF::initialize(const std::vector<ArmorPose>& observations, double ts) {
@@ -246,6 +268,8 @@ void PixelEKF::initialize(const std::vector<ArmorPose>& observations, double ts)
     x_(YAW) = wrapPi(theta + kPi);  // 近侧板在 yaw = θ+π（+r 约定）
     x_(Z0) = pz + (has_saved_ ? saved_dz_ * 0.5 : 0.0);
     x_(Z1) = pz - (has_saved_ ? saved_dz_ * 0.5 : 0.0);
+    x_(MAG) = cfg_.mag_init;
+    x_(AZI) = cfg_.azi_init;
 
     P_ = Eigen::MatrixXd::Zero(kDim, kDim);
     P_(CX, CX) = P_(CY, CY) = 0.01;   // 0.1m
@@ -254,6 +278,8 @@ void PixelEKF::initialize(const std::vector<ArmorPose>& observations, double ts)
     P_(R0, R0) = P_(R1, R1) = 0.0225; // 15cm 先验
     P_(YAW, YAW) = 4.0;               // 2rad
     P_(W, W) = 25.0;                  // 5rad/s
+    P_(MAG, MAG) = 0.09;              // 0.3rad ≈ 17° 初始不确定性
+    P_(AZI, AZI) = 4.0;               // 2rad
 
     initialized_ = true;
     converged_frames_ = 0;
@@ -380,20 +406,26 @@ PixelEKFConfig loadPixelEKFConfigOrDefault(const std::string& path) {
     rd("q_yaw", cfg.q_yaw);
     rd("q_z", cfg.q_z);
     rd("q_r", cfg.q_r);
+    rd("q_mag", cfg.q_mag);
+    rd("q_azi", cfg.q_azi);
     rd("sigma_pixel_u", cfg.sigma_pixel_u);
     rd("sigma_pixel_v", cfg.sigma_pixel_v);
     rd("sigma_yaw_rad", cfg.sigma_yaw_rad);
     rd("min_depth", cfg.min_depth);
     rd("plate_half_width", cfg.plate_half_width);
     rd("plate_half_height", cfg.plate_half_height);
+    rd("plate_tilt_deg", cfg.plate_tilt_deg);
     rd("mahalanobis_gate2", cfg.mahalanobis_gate2);
     ri("converge_frames", cfg.converge_frames);
     rd("reset_lost_s", cfg.reset_lost_s);
     rd("r0_init", cfg.r0_init);
     rd("r1_init", cfg.r1_init);
+    rd("mag_init", cfg.mag_init);
+    rd("azi_init", cfg.azi_init);
     rd("radius_min", cfg.radius_min);
     rd("radius_max", cfg.radius_max);
     rd("w_max", cfg.w_max);
+    rd("mag_max", cfg.mag_max);
     rd("nis_threshold", cfg.nis_threshold);
     ri("nis_fail_frames", cfg.nis_fail_frames);
     rd("nis_stable_threshold", cfg.nis_stable_threshold);

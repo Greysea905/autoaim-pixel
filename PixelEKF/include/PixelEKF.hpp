@@ -19,6 +19,8 @@ struct PixelEKFConfig {
     double q_yaw{2400.0};
     double q_z{0.03};
     double q_r{1e-8};   // 半径=物理常数：q_r 极小，靠初始 P0 收敛后自然锁定
+    double q_mag{1e-6}; // 倾斜角 mag 过程噪声（准静态，极小）
+    double q_azi{1e-6}; // 倾斜方向 azi 过程噪声（准静态，极小）
 
     // ---- 观测噪声 R ----
     double sigma_pixel_u{3.0};   // u 方向像素噪声 (px)
@@ -32,6 +34,7 @@ struct PixelEKFConfig {
     // 本任务只打底盘：底盘为小板 135×57mm。大板 230×57mm 待后续支持。
     double plate_half_width{0.0675};
     double plate_half_height{0.0285};
+    double plate_tilt_deg{15.0};  // 板固定安装角（后仰，法向上仰），单位度
 
     // ---- 关联 / 状态机 ----
     double mahalanobis_gate2{16.92};   // χ²(9) 95% 上分位（9 维观测）
@@ -41,11 +44,14 @@ struct PixelEKFConfig {
     // ---- 初始化 ----
     double r0_init{0.30};
     double r1_init{0.30};
+    double mag_init{0.0};   // 倾斜角初值（0 = 无倾斜起步）
+    double azi_init{0.0};   // 倾斜方向初值（mag=0 时无意义，任意）
 
     // ---- 发散检测物理界 ----
     double radius_min{0.10};
     double radius_max{0.50};
     double w_max{200.0};
+    double mag_max{0.6};    // 倾斜角物理界 (rad, ~34°)
 
     // ---- 一致性检验（NIS）----
     double nis_threshold{16.92};       // χ²(9) 95% 上分位
@@ -57,11 +63,12 @@ struct PixelEKFConfig {
 // 像素直滤 EKF（混合观测）：
 //   观测 = 8 维角点像素 + 1 维板法向 yaw（optimizeArmorYaw）。
 //   位置/距离由角点像素驱动（诚实的高斯像素噪声），朝向由 yaw 直通观测钉住（正对期间不再漂移）。
-// 状态 10 维 [cx,vx,cy,vy,z0,z1,r0,r1,yaw,w]（世界系），与 EKFEstimator 完全相同。
+// 状态 12 维 [cx,vx,cy,vy,z0,z1,r0,r1,yaw,w,mag,azi]（世界系）。
+//   mag=底盘倾斜角（与 +z 夹角）、azi=倾斜方向（旋转轴在 xoy 投影朝向），准静态。
 class PixelEKF {
 public:
     enum StateIndex : int {
-        CX = 0, VX, CY, VY, Z0, Z1, R0, R1, YAW, W, kDim
+        CX = 0, VX, CY, VY, Z0, Z1, R0, R1, YAW, W, MAG, AZI, kDim
     };
 
     explicit PixelEKF(const PixelEKFConfig& cfg = PixelEKFConfig{});
@@ -82,11 +89,15 @@ public:
 
     int associatedObservationIndex(int slot) const { return slot_obs_idx_[slot]; }
 
+    // 底盘倾斜状态（观测模型用，供可视化/调试）
+    double mag() const { return x_(MAG); }
+    double azi() const { return x_(AZI); }
+
 private:
     PixelEKFConfig cfg_;
     bool initialized_{false};
-    Eigen::VectorXd x_;   // 后验状态(10)
-    Eigen::MatrixXd P_;   // 后验协方差(10x10)
+    Eigen::VectorXd x_;   // 后验状态(12)
+    Eigen::MatrixXd P_;   // 后验协方差(12x12)
     TrackingState state_{TrackingState::NoTarget};
     double last_timestamp_{0.0};
     double last_obs_timestamp_{0.0};

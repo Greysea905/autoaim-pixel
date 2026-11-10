@@ -4,14 +4,16 @@
 # 对应 PixelEKF/include/PixelEKF.hpp 的 PixelEKFConfig；省略的键用代码默认值。
 
 # ---- 过程噪声 Q（与 EKFConfig 相同）----
-q_pos: 3000.0        # 平移过程噪声（位置/速度）
-q_yaw: 2400.0         # yaw/角速度过程噪声（w 收敛速度主要靠它）
+q_pos: 100.0        # 平移过程噪声（位置/速度）
+q_yaw: 100.0         # yaw/角速度过程噪声（w 收敛速度主要靠它）
 q_z: 0.03            # 高度过程噪声
 q_r: 1.0e-08         # 半径过程噪声（物理常数，几乎冻结）
+q_mag: 1.0e-06       # 倾斜角 mag 过程噪声（准静态，极小）
+q_azi: 1.0e-06       # 倾斜方向 azi 过程噪声（准静态，极小）
 
 # ---- 观测噪声 R ----
-sigma_pixel_u: 3.0   # u 方向像素噪声 (px)
-sigma_pixel_v: 3.0   # v 方向像素噪声 (px)
+sigma_pixel_u: 20.0   # u 方向像素噪声 (px)
+sigma_pixel_v: 20.0   # v 方向像素噪声 (px)
 sigma_yaw_rad: 0.4   # 板法向 yaw 观测噪声 (rad)，来自 optimizeArmorYaw
 
 # ---- 深度保护 ----
@@ -20,20 +22,24 @@ min_depth: 0.1       # 透视除法分母下限 (m)，防 Z→0 时 NaN/Inf
 # ---- 板尺寸（本任务只打底盘小板 135×57mm；大板 230×57mm 待支持）----
 plate_half_width: 0.0675    # 小板半宽 (m)
 plate_half_height: 0.0285   # 板半高 (m)
+plate_tilt_deg: 15.0        # 板固定安装角（后仰，法向上仰），单位度
 
 # ---- 关联 / 状态机 ----
-mahalanobis_gate2: 16.92    # χ²(9) 95% 上分位（9 维观测）
+mahalanobis_gate2: 16.92    # χ²(9) 95%
 converge_frames: 3
-reset_lost_s: 0.20
+reset_lost_s: 0.10
 
 # ---- 初始化 ----
 r0_init: 0.30
 r1_init: 0.30
+mag_init: 0.0       # 倾斜角初值（0 = 无倾斜起步）
+azi_init: 0.0       # 倾斜方向初值（mag=0 时无意义）
 
 # ---- 发散检测物理界 ----
 radius_min: 0.10
 radius_max: 0.50
 w_max: 200.0
+mag_max: 0.6        # 倾斜角物理界 (rad, ~34°)
 
 # ---- 一致性检验（NIS，χ²(9) 95% 上分位 = 16.92）----
 nis_threshold: 16.92

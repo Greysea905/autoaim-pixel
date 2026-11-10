@@ -7,9 +7,11 @@ add_library(camera STATIC
 target_include_directories(camera
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${OpenCV_INCLUDE_DIRS}
 )
 
 target_compile_features(camera PUBLIC cxx_std_17)
 
 # MVS::MVS 由 cmake/FindMVS.cmake 提供，默认在 /opt/MVS 查找。
-target_link_libraries(camera PUBLIC MVS::MVS)
+# OpenCV：Frame 结构体用 cv::Mat（零拷贝），需要 opencv 头文件 + core 库。
+target_link_libraries(camera PUBLIC MVS::MVS ${OpenCV_LIBS})

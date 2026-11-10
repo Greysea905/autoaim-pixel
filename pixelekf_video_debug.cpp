@@ -127,8 +127,26 @@ int main(int argc, char** argv) {
         pred.target_obs_index = estimator.associatedObservationIndex(pred.best_slot);
         const auto st = estimator.state();
 
+        // ---- 1. 相机取流 ----
         WEB_LOG("camera_fps", fps);
+
+        // ---- 2. 装甲板检测 ----
         WEB_LOG("armor_count", static_cast<double>(detections.size()));
+
+        // ---- 3. 灯条角点观测（观测向量，只保留 yaw）----
+        if (!observations.empty()) {
+            // 固定选最近的一块板（min 水平距离平方），避免多板时 front() 顺序跳变。
+            const ArmorPose* ref = &observations.front();
+            double best_d2 = 1e18;
+            for (const auto& o : observations) {
+                const double d2 = o.position_world_m[0] * o.position_world_m[0] +
+                                  o.position_world_m[1] * o.position_world_m[1];
+                if (d2 < best_d2) { best_d2 = d2; ref = &o; }
+            }
+            WEB_LOG("obs_yaw", ref->armor_normal_yaw);
+        }
+
+        // ---- 4. EKF（状态向量按顺序）----
         WEB_LOG("ekf_state", static_cast<double>(pred.state));
         WEB_LOG("stable_stage",
                 (estimator.trackingState() == TrackingState::Stable)
@@ -143,28 +161,13 @@ int main(int argc, char** argv) {
         WEB_LOG("ekf_radius_2_m", pred.radius_2_m);
         WEB_LOG("ekf_yaw_rad", pred.target_plate_yaw);
         WEB_LOG("ekf_yaw_rate_rad_s", pred.body_yaw_velocity);
+        WEB_LOG("ekf_mag", estimator.mag());   // 底盘倾斜角
+        WEB_LOG("ekf_azi", estimator.azi());   // 底盘倾斜方向
+
+        // ---- 5. 发给电控 ----
         WEB_LOG("target_yaw", pred.target_yaw);
         WEB_LOG("target_pitch", pred.target_pitch);
         WEB_LOG("target_distance", pred.distance_m);
-        WEB_LOG("ekf_body_yaw", st.yaw);        // 车体 yaw（板0 方向）
-        WEB_LOG("ekf_w", st.w);                // 车体角速度
-        if (!observations.empty()) {
-            // 固定选最近的一块板（min 水平距离平方），避免多板时 front() 顺序跳变。
-            const ArmorPose* ref = &observations.front();
-            double best_d2 = 1e18;
-            for (const auto& o : observations) {
-                const double d2 = o.position_world_m[0] * o.position_world_m[0] +
-                                  o.position_world_m[1] * o.position_world_m[1];
-                if (d2 < best_d2) { best_d2 = d2; ref = &o; }
-            }
-            const cv::Vec3d& p = ref->position_world_m;
-            WEB_LOG("pnp_x_m", p[0]);
-            WEB_LOG("pnp_y_m", p[1]);
-            WEB_LOG("pnp_z_m", p[2]);
-            WEB_LOG("pnp_yaw_rad", ref->armor_normal_yaw);   // 直通 yaw 观测
-            WEB_LOG("pnp_distance_m", cv::norm(p));
-            WEB_LOG("pnp_reprojection_error", ref->reprojection_error);
-        }
 
         // 目标板（Planner 选中的槽位对应的观测），画黄色框。
         const ArmorDetection* tracked = nullptr;
