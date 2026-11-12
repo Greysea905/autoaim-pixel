@@ -25,15 +25,17 @@
 
 **方案**：观测 = 8 像素角点 + 1 板法向 yaw（9 维）；位姿（距离/yaw）成为隐藏状态，由投影模型 + 像素观测推断。
 
-**状态（10 维世界系）**：`[cx,vx,cy,vy,z0,z1,r0,r1,yaw,w]`
+**状态（13 维世界系）**：`[cx,vx,cy,vy,z0,z1,r0,r1,yaw,w,aw,mag,azi]`
 - 平移 CV + 旋转 CT（匀速自转）
 - z0/z1：对侧板共享高度（槽 0/2 用 z0，槽 1/3 用 z1）；r0/r1：对侧板共享半径
+- mag/azi：底盘倾斜（准静态，轮腿车旋转轴不垂直地面）——mag=倾斜角（与 +z 夹角）、azi=倾斜方向（旋转轴在 xoy 投影朝向）
+- aw：角加速度（IMM 机动模型用；q_aw=0 稳态 w 恒定，q_aw>0 机动 w 可 ramp）
 
 **观测（9 维）**：`[u0,v0,u1,v1,u2,v2,u3,v3, yaw]`
 - 8 像素 = 4 角点（左上/右上/右下/左下）针孔投影
 - yaw = `armor_normal_yaw`，来自 `optimizeArmorYaw`（1D 重投影搜索、锚定「云台+π」、避免 IPPE ± 翻面）
 
-**观测方程 h**：板角点世界坐标 → 世界→相机（R_w2c）→ 针孔投影（含深度 clamp `min_depth=0.1` 防 Z→0 NaN）；`h[8] = wrapPi(x(YAW)+slot·π/2)`。
+**观测方程 h**：板位置/法向绕倾斜轴 `n=(sinφcosψ, sinφsinψ, cosφ)` 转、再相对倾斜轴施加 15° 板安装角（竖直边 up 后仰 15°），然后世界→相机（R_w2c）→ 针孔投影（含深度 clamp `min_depth=0.1` 防 Z→0 NaN）；`h[8] = wrapPi(x(YAW)+slot·π/2)`。
 
 **关键设计点**：
 - 距离不再是直接测量，而是隐藏状态；投影雅可比 `∂u/∂Z=-fx·X/Z²` 自动编码「越远距离越弱可观」，无需动态距离 R。
@@ -63,22 +65,18 @@
 
 5. **reset 门限治不了「机动滞后」**：reset 是「要不要丢弃估计」，滞后是「跟得多快」（Q/R 决定），两者正交。滞后只能靠 IMM 或自适应 Q 解决。
 
-## 下一步计划（按顺序）
+## 当前状态（已完成的改动）
 
-1. **IMM**（交互多模型）——解决机动滞后。
-   - 运动模型：先 2 模型同结构差 Q（CV+CAR 低 Q 稳态 / 高 Q 机动）；若不够，上 CAA（加角加速度状态 α，拟合「反向 ramp」）。
-   - 学长反馈：打旋转目标时 target_yaw 前半段有平段，疑似云台 bias 使「相对 w」非恒定，CAA 可能更对症（**待验证**：看相对 w 是否在 ramp）。
+- **tilt 状态（mag/azi）**：已实现（12 维状态）。板绕倾斜轴 n 转，板高度 = center_z - mag·r·cos(yaw+off-azi)。**结果：依然收敛，但暂时没看出精度优化**——15° 只纠正 ~3.4% 距离偏置（3m 处约 10cm），且视频中靶车倾斜幅度未知，需看 `ekf_mag` 是否收敛到非零来判断 tilt 是否真正起作用。
+- **15° 板安装角**：已实现。组合 R_tilt·R_15°·R_yaw（不硬编码 +z），竖直边 up 从 `(0,0,1)` 改为 `(-cos a·sin15°, -sin a·sin15°, cos15°)`。
+- **Web UI**：观测向量只保留 `obs_yaw`；指标按管线顺序（相机→检测→观测→EKF→电控）排列；加了 `ekf_mag/ekf_azi`、`imm_prob_maneuver` 曲线。
+- **IMM（2 模型）**：已实现（`PixelEKF/include/IMM.hpp` + `src/IMM.cpp`）。稳态 CV+CAR（q_aw=0）+ 机动 CV+CAA（q_aw>0，yaml 可调），统一 13 维状态，update 做 mixing→滤波→概率→融合。`imm_prob_maneuver` 基线 ≈0.25（Markov 稳态解，非 bug），反向时冲到 0~0.5（软切换，非 1）。
 
-2. **tilt 状态（mag/azi）**——轮腿车（高低腿小陀螺）旋转轴不垂直地面。
-   - 加 2 个准静态状态：`mag`（倾角幅度，与 +z 夹角）、`azi`（倾斜方向，旋转轴在 xoy 投影朝向）。
-   - 旋转轴单位向量 n = (sinφcosψ, sinφsinψ, cosφ)；板高度 = center_z - mag·r·cos(yaw+off-azi)。
-   - tilt 可观测性：旋转时通过「板高度随 yaw 振荡」可观测；静止时不可观测（但静止时 tilt 也不重要）。
-   - 必须在 IMM 之前做（结构问题先于机动问题；否则所有 IMM 模型一起继承结构错误）。
+## 下一步计划
 
-3. **15° 板安装角**——板后仰 15°（法向上仰 15°），物理上相对底盘竖直轴（= 旋转轴）。
-   - **已决策：组合 R_tilt·R_15°·R_yaw，不硬编码 +z**（硬编码误差 = mag 一阶量，不可接受）。
-   - tilt 误差传播的顾虑，靠「tilt 旋转时可观测 + 准静态小噪声稳定收敛」缓解。
-   - 15° 在 plateCornersWorld 里的实现：竖直边 `up` 从 `(0,0,1)` 改为 `(-cos a·sin15°, -sin a·sin15°, cos15°)`，收益是纠正 ~3.4% 距离偏置。
+1. **IMM 调参验证**：调 `q_aw`（现 5.0，可试 20~50），看反向时 `imm_prob_maneuver` 是否冲高、`ekf_w` 是否更平滑。
+2. **若旋转不够**：扩成 2×2 网格（加平移加速度 ax/ay、CA 模型），但先等"平移加速导致滞后"的证据。
+3. **学长反馈待验证**：打旋转目标时 target_yaw 前半段有平段，疑似云台 bias 使「相对 w」非恒定（看相对 w 是否在 ramp）。
 
 ## 构建运行
 
@@ -91,4 +89,4 @@ cmake --build build --target pixelekf_video_debug -j4
 
 - 相机标定：`config/camera.yaml`（或 `config/camera_gimbal.yaml`，机上相机）。
 - 调参：改 `config/pixel_ekf.yaml` 后重跑，无需重编译。
-- Web UI（8080）关键曲线：`ekf_w`（角速度）、`pnp_yaw_rad` vs `ekf_yaw_rad`（观测 yaw vs 估计 yaw，直接可比）、`ekf_z0_m/z1_m`（高度，判断 tilt 是否显著）。
+- Web UI（8080）关键曲线：`obs_yaw`（观测 yaw）vs `ekf_yaw_rad`（估计 yaw，直接可比）、`ekf_yaw_rate_rad_s`（角速度 w）、`ekf_mag/ekf_azi`（tilt 是否收敛）、`ekf_z0_m/z1_m`（高度）。

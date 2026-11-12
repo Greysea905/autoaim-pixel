@@ -21,6 +21,7 @@ struct PixelEKFConfig {
     double q_r{1e-8};   // 半径=物理常数：q_r 极小，靠初始 P0 收敛后自然锁定
     double q_mag{1e-6}; // 倾斜角 mag 过程噪声（准静态，极小）
     double q_azi{1e-6}; // 倾斜方向 azi 过程噪声（准静态，极小）
+    double q_aw{0.0};   // 角加速度 aw 过程噪声（0=稳态 w 恒定，>0=机动 w 可 ramp）
 
     // ---- 观测噪声 R ----
     double sigma_pixel_u{3.0};   // u 方向像素噪声 (px)
@@ -68,7 +69,7 @@ struct PixelEKFConfig {
 class PixelEKF {
 public:
     enum StateIndex : int {
-        CX = 0, VX, CY, VY, Z0, Z1, R0, R1, YAW, W, MAG, AZI, kDim
+        CX = 0, VX, CY, VY, Z0, Z1, R0, R1, YAW, W, AW, MAG, AZI, kDim
     };
 
     explicit PixelEKF(const PixelEKFConfig& cfg = PixelEKFConfig{});
@@ -93,6 +94,13 @@ public:
     double mag() const { return x_(MAG); }
     double azi() const { return x_(AZI); }
 
+    // IMM 用：读写状态/协方差、读上一帧似然
+    const Eigen::VectorXd& x() const { return x_; }
+    void setX(const Eigen::VectorXd& x) { x_ = x; }
+    const Eigen::MatrixXd& P() const { return P_; }
+    void setP(const Eigen::MatrixXd& P) { P_ = P; }
+    double lastLikelihood() const { return last_likelihood_; }
+
 private:
     PixelEKFConfig cfg_;
     bool initialized_{false};
@@ -108,6 +116,7 @@ private:
     int slot_obs_idx_[4]{-1, -1, -1, -1};
     int nis_fail_frames_{0};
     double last_nis_{1e18};
+    double last_likelihood_{1.0};  // 上一帧模型似然（IMM 概率更新用）
 
     // 跨 reset 保留的物理常数（同一辆车不变）：半径 r0/r1、高度差 dz=z0-z1。
     double saved_r0_{0.28}, saved_r1_{0.28}, saved_dz_{0.0};

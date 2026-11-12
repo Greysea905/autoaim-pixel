@@ -1,5 +1,6 @@
 add_library(PixelEKF STATIC
     src/PixelEKF.cpp
+    src/IMM.cpp
 )
 target_include_directories(PixelEKF PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include

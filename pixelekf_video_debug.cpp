@@ -8,7 +8,7 @@
 // 需在项目根目录运行（检测/分类模型是相对路径）。
 
 #include "AppSupport.hpp"
-#include "PixelEKF.hpp"
+#include "IMM.hpp"
 #include "Planner.hpp"
 #include "StudentTasks.hpp"
 #include "WebLogger.hpp"
@@ -94,7 +94,10 @@ int main(int argc, char** argv) {
     START_WEB_SERVER(web_port);
     std::thread renderer(renderLoop, win_name);
 
-    rmv::tracker::PixelEKF estimator(rmv::tracker::loadPixelEKFConfigOrDefault());
+    rmv::tracker::PixelEKFConfig maneuver_cfg = rmv::tracker::loadPixelEKFConfigOrDefault();  // q_aw 取 yaml 值
+    rmv::tracker::PixelEKFConfig steady_cfg = maneuver_cfg;
+    steady_cfg.q_aw = 0.0;  // 稳态模型：w 恒定
+    rmv::tracker::IMM estimator(steady_cfg, maneuver_cfg);
     rmv::tracker::Planner planner;
     const GimbalState gimbal{};  // 静止相机：云台角全 0（世界系=相机系）
 
@@ -163,6 +166,8 @@ int main(int argc, char** argv) {
         WEB_LOG("ekf_yaw_rate_rad_s", pred.body_yaw_velocity);
         WEB_LOG("ekf_mag", estimator.mag());   // 底盘倾斜角
         WEB_LOG("ekf_azi", estimator.azi());   // 底盘倾斜方向
+        WEB_LOG("imm_prob_maneuver", estimator.modelProb(1));  // 机动模型概率（反向时冲高）
+        WEB_LOG("imm_model", estimator.modelProb(1) > 0.5 ? 1.0 : 0.0);  // 0=稳态, 1=机动（哪个模型主导）
 
         // ---- 5. 发给电控 ----
         WEB_LOG("target_yaw", pred.target_yaw);

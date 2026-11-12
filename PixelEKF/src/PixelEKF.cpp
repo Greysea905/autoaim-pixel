@@ -191,6 +191,11 @@ void PixelEKF::predict(double dt) {
     F(CX, VX) = dt;
     F(CY, VY) = dt;
     F(YAW, W) = dt;
+    // 角加速度 aw：q_aw=0（稳态）时 w 恒定；q_aw>0（机动）时 w += aw·dt
+    if (cfg_.q_aw > 0.0) {
+        x_(W) += x_(AW) * dt;
+        F(W, AW) = dt;
+    }
     P_ = F * P_ * F.transpose();
 
     // 自适应 Q（NIS 驱动）：模型拟合好→Q 小（平滑压波动）；失配→Q 全量（加速收敛）。
@@ -212,6 +217,9 @@ void PixelEKF::predict(double dt) {
     P_(R1, R1) += cfg_.q_r * dt;
     P_(MAG, MAG) += cfg_.q_mag * dt;
     P_(AZI, AZI) += cfg_.q_azi * dt;
+    if (cfg_.q_aw > 0.0) {
+        P_(AW, AW) += cfg_.q_aw * dt;
+    }
 }
 
 double PixelEKF::mahalanobis2(const Eigen::VectorXd& z, int slot) const {
@@ -268,6 +276,7 @@ void PixelEKF::initialize(const std::vector<ArmorPose>& observations, double ts)
     x_(YAW) = wrapPi(theta + kPi);  // 近侧板在 yaw = θ+π（+r 约定）
     x_(Z0) = pz + (has_saved_ ? saved_dz_ * 0.5 : 0.0);
     x_(Z1) = pz - (has_saved_ ? saved_dz_ * 0.5 : 0.0);
+    x_(AW) = 0.0;               // 角加速度初值 0
     x_(MAG) = cfg_.mag_init;
     x_(AZI) = cfg_.azi_init;
 
@@ -278,6 +287,7 @@ void PixelEKF::initialize(const std::vector<ArmorPose>& observations, double ts)
     P_(R0, R0) = P_(R1, R1) = 0.0225; // 15cm 先验
     P_(YAW, YAW) = 4.0;               // 2rad
     P_(W, W) = 25.0;                  // 5rad/s
+    P_(AW, AW) = 4.0;                // 2 rad/s² 初始不确定性
     P_(MAG, MAG) = 0.09;              // 0.3rad ≈ 17° 初始不确定性
     P_(AZI, AZI) = 4.0;               // 2rad
 
@@ -362,6 +372,7 @@ void PixelEKF::update(const std::vector<ArmorPose>& observations, double timesta
     }
 
     last_nis_ = (n > 0) ? frame_min_nis : kInf;
+    last_likelihood_ = std::exp(-0.5 * last_nis_);
 
     // 4.5 只 correction 被观测到的槽。
     for (int s = 0; s < 4; ++s) {
@@ -408,6 +419,7 @@ PixelEKFConfig loadPixelEKFConfigOrDefault(const std::string& path) {
     rd("q_r", cfg.q_r);
     rd("q_mag", cfg.q_mag);
     rd("q_azi", cfg.q_azi);
+    rd("q_aw", cfg.q_aw);
     rd("sigma_pixel_u", cfg.sigma_pixel_u);
     rd("sigma_pixel_v", cfg.sigma_pixel_v);
     rd("sigma_yaw_rad", cfg.sigma_yaw_rad);
